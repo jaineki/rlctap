@@ -30,7 +30,7 @@ const MAX_MESSAGES_STORED = 1000;
 // Admin configuration - Store password securely
 // In production, use environment variables: process.env.ADMIN_PASSWORD
 const ADMIN_CONFIG = {
-  password: "admin123", // Change this to your desired password
+  password: "selovasx2024", // Change this to your desired password
   // For production, use: password: process.env.ADMIN_PASSWORD || "admin123"
 };
 
