@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Messenger Chat</title>
     <style>
+        /*open source code pamore*/
         * {
             margin: 0;
             padding: 0;
@@ -842,7 +843,7 @@
         </div>
     </div>
 
-    <script src="/socket.io/socket.io.js"></script>
+                <script src="/socket.io/socket.io.js"></script>
     <script>
         // DOM Elements
         const socket = io({
@@ -936,7 +937,6 @@
         });
 
         socket.on('messages:history', (historyMessages) => {
-            // Clear welcome message
             const welcomeMsg = messageContainer.querySelector('.message.system');
             if (welcomeMsg) {
                 welcomeMsg.remove();
@@ -978,6 +978,7 @@
         });
 
         socket.on('message:deleted', (data) => {
+            // Find and mark the deleted message
             const messageElements = messageContainer.querySelectorAll('.message:not(.system)');
             messageElements.forEach(element => {
                 const messageId = element.dataset.messageId;
@@ -986,6 +987,14 @@
                     if (bubble) {
                         bubble.textContent = '🗑️ Message deleted';
                         element.classList.add('deleted');
+                        // Remove delete button if exists
+                        const actions = element.querySelector('.message-actions');
+                        if (actions) {
+                            const deleteBtn = actions.querySelector('button');
+                            if (deleteBtn) {
+                                deleteBtn.remove();
+                            }
+                        }
                     }
                 }
             });
@@ -1074,7 +1083,7 @@
                 <div class="message-bubble">${escapeHtml(message.message)}</div>
                 <div class="message-actions">
                     <span class="timestamp">${time}</span>
-                    ${isOwn ? `<button onclick="deleteMessage('${message.id}')">Delete</button>` : ''}
+                    ${isOwn ? `<button onclick="deleteOwnMessage('${message.id}')">Delete</button>` : ''}
                 </div>
             `;
 
@@ -1129,25 +1138,43 @@
             return div.innerHTML;
         }
 
-        // Delete message function
-        window.deleteMessage = function(messageId) {
-            if (confirm('Delete this message?')) {
-                fetch(`/api/messages/${messageId}`, {
-                    method: 'DELETE',
-                    headers: {
-                        'X-Admin-Key': 'admin123'
-                    }
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        console.log('Message deleted');
-                    }
-                })
-                .catch(error => {
-                    console.error('Error deleting message:', error);
-                });
+        // Delete own message function - No admin password required
+        window.deleteOwnMessage = function(messageId) {
+            if (!currentUser) {
+                alert('You must be logged in to delete messages');
+                return;
             }
+            
+            if (!confirm('Delete this message?')) {
+                return;
+            }
+            
+            fetch(`/api/messages/${messageId}`, {
+                method: 'DELETE',
+                headers: {
+                    'X-User-Id': currentUser.userId
+                }
+            })
+            .then(response => {
+                if (!response.ok) {
+                    return response.json().then(data => {
+                        throw new Error(data.message || 'Failed to delete message');
+                    });
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.success) {
+                    console.log('Message deleted');
+                    // The message will be updated via socket event
+                } else {
+                    alert('Failed to delete message: ' + data.message);
+                }
+            })
+            .catch(error => {
+                console.error('Error deleting message:', error);
+                alert(error.message || 'Error deleting message');
+            });
         };
 
         // Event handlers
@@ -1227,9 +1254,8 @@
 
         messageInput.addEventListener('input', handleTyping);
 
-        // Focus username input on load
         setTimeout(() => usernameInput.focus(), 500);
         setTimeout(scrollToBottom, 100);
-    </script>
+                </script>
 </body>
 </html>
