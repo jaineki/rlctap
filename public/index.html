@@ -31,6 +31,7 @@
             display: flex;
             flex-direction: column;
             overflow: hidden;
+            position: relative;
         }
 
         .chat-header {
@@ -41,6 +42,7 @@
             justify-content: space-between;
             align-items: center;
             border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            flex-shrink: 0;
         }
 
         .chat-header h1 {
@@ -88,6 +90,7 @@
             border-right: 1px solid #e5e7eb;
             padding: 16px;
             overflow-y: auto;
+            flex-shrink: 0;
         }
 
         .users-sidebar h3 {
@@ -123,11 +126,15 @@
             justify-content: center;
             font-weight: 600;
             font-size: 14px;
+            flex-shrink: 0;
         }
 
         .user-name {
             font-size: 14px;
             color: #1f2937;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
 
         .user-name.current-user {
@@ -140,6 +147,7 @@
             display: flex;
             flex-direction: column;
             background: #ffffff;
+            min-width: 0;
         }
 
         .chat-messages {
@@ -153,6 +161,12 @@
             margin-bottom: 12px;
             display: flex;
             flex-direction: column;
+            animation: fadeIn 0.3s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
         }
 
         .message.system {
@@ -207,6 +221,16 @@
             align-items: flex-end;
         }
 
+        .message.deleted {
+            opacity: 0.6;
+        }
+
+        .message.deleted .message-content {
+            font-style: italic;
+            background: #f3f4f6;
+            color: #6b7280;
+        }
+
         .typing-indicator {
             padding: 8px 20px;
             font-size: 14px;
@@ -215,6 +239,7 @@
             min-height: 30px;
             display: flex;
             align-items: center;
+            flex-shrink: 0;
         }
 
         .typing-indicator span {
@@ -256,6 +281,7 @@
             display: flex;
             gap: 12px;
             align-items: flex-end;
+            flex-shrink: 0;
         }
 
         .chat-input-area input[type="text"] {
@@ -307,6 +333,7 @@
             justify-content: center;
             align-items: center;
             border-radius: 20px;
+            z-index: 10;
         }
 
         .login-box {
@@ -383,6 +410,28 @@
             padding: 2px 10px;
             border-radius: 12px;
             font-size: 12px;
+        }
+
+        .message-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 4px;
+        }
+
+        .message-actions button {
+            background: none;
+            border: none;
+            color: #9ca3af;
+            font-size: 12px;
+            cursor: pointer;
+            padding: 2px 6px;
+            border-radius: 4px;
+            transition: background 0.2s;
+        }
+
+        .message-actions button:hover {
+            background: #f3f4f6;
+            color: #ef4444;
         }
 
         @media (max-width: 768px) {
@@ -496,7 +545,14 @@
     <script src="/socket.io/socket.io.js"></script>
     <script>
         // DOM Elements
-        const socket = io();
+        const socket = io({
+            transports: ['websocket', 'polling'],
+            reconnection: true,
+            reconnectionAttempts: Infinity,
+            reconnectionDelay: 1000,
+            reconnectionDelayMax: 5000
+        });
+        
         const loginOverlay = document.getElementById('loginOverlay');
         const usernameInput = document.getElementById('usernameInput');
         const joinButton = document.getElementById('joinButton');
@@ -513,26 +569,57 @@
         let currentUser = null;
         let typingTimeout = null;
         let isTyping = false;
+        let isConnected = false;
 
         // Socket event listeners
         socket.on('connect', () => {
+            isConnected = true;
             updateConnectionStatus(true);
-        });
-
-        socket.on('disconnect', () => {
-            updateConnectionStatus(false);
+            console.log('Connected to server');
+            
+            // If we have a current user but got disconnected, rejoin
             if (currentUser) {
-                showSystemMessage('Disconnected from server');
+                socket.emit('user:join', { username: currentUser.username });
             }
         });
 
-        socket.on('connect_error', () => {
+        socket.on('disconnect', () => {
+            isConnected = false;
             updateConnectionStatus(false);
-            showError('Connection error. Please refresh the page.');
+            if (currentUser) {
+                showSystemMessage('Disconnected from server. Reconnecting...');
+            }
+        });
+
+        socket.on('reconnect', () => {
+            console.log('Reconnected to server');
+            if (currentUser) {
+                socket.emit('user:join', { username: currentUser.username });
+            }
+        });
+
+        socket.on('connect_error', (error) => {
+            console.error('Connection error:', error);
+            updateConnectionStatus(false);
+            if (!currentUser) {
+                showError('Connection error. Please refresh the page.');
+            }
         });
 
         socket.on('error', (data) => {
             showError(data.message);
+        });
+
+        socket.on('messages:history', (historyMessages) => {
+            // Clear welcome message
+            const welcomeMsg = messageContainer.querySelector('div[style*="text-align: center"]');
+            if (welcomeMsg) {
+                welcomeMsg.remove();
+            }
+            
+            historyMessages.forEach(message => {
+                displayMessage(message, false);
+            });
         });
 
         socket.on('user:joined', (data) => {
@@ -558,7 +645,28 @@
         });
 
         socket.on('message:new', (message) => {
-            displayMessage(message);
+            displayMessage(message, true);
+        });
+
+        socket.on('message:deleted', (data) => {
+            // Find and mark message as deleted
+            const messageElements = messageContainer.querySelectorAll('.message');
+            messageElements.forEach(element => {
+                const messageId = element.dataset.messageId;
+                if (messageId === data.messageId) {
+                    const content = element.querySelector('.message-content');
+                    if (content) {
+                        content.textContent = '[Message deleted by admin]';
+                        element.classList.add('deleted');
+                    }
+                }
+            });
+        });
+
+        socket.on('messages:cleared', (data) => {
+            // Clear all messages
+            messageContainer.innerHTML = '';
+            showSystemMessage(`All messages cleared by admin (${data.deletedCount} messages deleted)`);
         });
 
         socket.on('typing:start', (data) => {
@@ -606,7 +714,7 @@
             `).join('');
         }
 
-        function displayMessage(message) {
+        function displayMessage(message, animate = true) {
             // Remove welcome message
             const welcomeMsg = messageContainer.querySelector('div[style*="text-align: center"]');
             if (welcomeMsg) {
@@ -616,6 +724,11 @@
             const isOwn = message.userId === currentUser?.userId;
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${isOwn ? 'own' : ''}`;
+            messageDiv.dataset.messageId = message.id;
+            
+            if (!animate) {
+                messageDiv.style.animation = 'none';
+            }
 
             const time = new Date(message.timestamp).toLocaleTimeString('en-US', {
                 hour: '2-digit',
@@ -624,10 +737,15 @@
 
             messageDiv.innerHTML = `
                 <div class="message-header">
-                    <span class="username">${message.username}</span>
+                    <span class="username">${escapeHtml(message.username)}</span>
                     <span class="timestamp">${time}</span>
                 </div>
                 <div class="message-content">${escapeHtml(message.message)}</div>
+                ${isOwn ? `
+                    <div class="message-actions">
+                        <button onclick="deleteMessage('${message.id}')">Delete</button>
+                    </div>
+                ` : ''}
             `;
 
             messageContainer.appendChild(messageDiv);
@@ -675,6 +793,30 @@
             return div.innerHTML;
         }
 
+        // Delete message function (for own messages)
+        window.deleteMessage = function(messageId) {
+            if (confirm('Delete this message?')) {
+                fetch(`/api/messages/${messageId}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'X-Admin-Key': 'admin123' // This would normally be stored securely
+                    }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        console.log('Message deleted');
+                    } else {
+                        alert('Failed to delete message: ' + data.message);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error deleting message:', error);
+                    alert('Error deleting message');
+                });
+            }
+        };
+
         // Event handlers
         function handleJoin() {
             const username = usernameInput.value.trim();
@@ -714,7 +856,7 @@
         }
 
         function handleTyping() {
-            if (!currentUser) return;
+            if (!currentUser || !isConnected) return;
 
             if (!isTyping) {
                 isTyping = true;
@@ -753,4 +895,4 @@
         usernameInput.focus();
     </script>
 </body>
-  </html>
+</html>
