@@ -11,7 +11,6 @@ const io = new Server(server, {
     origin: "*",
     methods: ["GET", "POST"]
   },
-  // Increase ping timeout to prevent premature disconnections
   pingTimeout: 60000,
   pingInterval: 25000,
   transports: ['websocket', 'polling']
@@ -21,15 +20,19 @@ const io = new Server(server, {
 app.use(express.json());
 app.use(express.static("public"));
 
-// In-memory storage with persistence
+// In-memory storage
 const users = new Map();
 let messages = [];
 const MAX_MESSAGE_LENGTH = 500;
 const MAX_USERNAME_LENGTH = 30;
-const MAX_MESSAGES_STORED = 1000; // Increased storage
+const MAX_MESSAGES_STORED = 1000;
 
-// Load messages from memory (could be replaced with database)
-// For demo purposes, we'll keep them in memory but with better handling
+// Admin configuration - Store password securely
+// In production, use environment variables: process.env.ADMIN_PASSWORD
+const ADMIN_CONFIG = {
+  password: "admin123", // Change this to your desired password
+  // For production, use: password: process.env.ADMIN_PASSWORD || "admin123"
+};
 
 // Helper functions
 const getOnlineUsers = () => {
@@ -44,15 +47,24 @@ const broadcastUsers = () => {
   io.emit("users:update", onlineUsers);
 };
 
-// Admin check middleware
-const isAdmin = (req, res, next) => {
-  const adminKey = req.headers['x-admin-key'] || req.query.adminKey;
-  if (adminKey === process.env.ADMIN_KEY || adminKey === 'admin123') {
+// Admin authentication middleware
+const authenticateAdmin = (req, res, next) => {
+  // Check for admin password in headers or query params
+  const providedPassword = req.headers['x-admin-password'] || req.query.adminPassword;
+  
+  if (!providedPassword) {
+    return res.status(401).json({
+      success: false,
+      message: "Admin password required"
+    });
+  }
+
+  if (providedPassword === ADMIN_CONFIG.password) {
     next();
   } else {
     res.status(403).json({
       success: false,
-      message: "Unauthorized. Admin key required."
+      message: "Invalid admin password"
     });
   }
 };
@@ -125,8 +137,9 @@ app.get("/api/messages/:id", (req, res) => {
   });
 });
 
+// Admin protected routes
 // Delete a specific message (Admin only)
-app.delete("/api/messages/:id", isAdmin, (req, res) => {
+app.delete("/api/messages/:id", authenticateAdmin, (req, res) => {
   const messageId = req.params.id;
   const messageIndex = messages.findIndex(m => m.id === messageId);
   
@@ -154,7 +167,7 @@ app.delete("/api/messages/:id", isAdmin, (req, res) => {
 });
 
 // Delete all messages (Admin only)
-app.delete("/api/messages", isAdmin, (req, res) => {
+app.delete("/api/messages", authenticateAdmin, (req, res) => {
   const deletedCount = messages.length;
   messages = [];
   
@@ -173,7 +186,7 @@ app.delete("/api/messages", isAdmin, (req, res) => {
 });
 
 // Bulk delete messages by user (Admin only)
-app.delete("/api/messages/user/:userId", isAdmin, (req, res) => {
+app.delete("/api/messages/user/:userId", authenticateAdmin, (req, res) => {
   const userId = req.params.userId;
   const userMessages = messages.filter(m => m.userId === userId);
   const deletedCount = userMessages.length;
@@ -197,7 +210,7 @@ app.delete("/api/messages/user/:userId", isAdmin, (req, res) => {
 });
 
 // Delete messages older than specified time (Admin only)
-app.delete("/api/messages/old/:hours", isAdmin, (req, res) => {
+app.delete("/api/messages/old/:hours", authenticateAdmin, (req, res) => {
   const hours = parseInt(req.params.hours);
   if (isNaN(hours) || hours <= 0) {
     return res.status(400).json({
@@ -233,7 +246,7 @@ io.on("connection", (socket) => {
   console.log(`New client connected: ${socket.id}`);
 
   // Send existing messages to new user
-  const recentMessages = messages.slice(-50); // Send last 50 messages
+  const recentMessages = messages.slice(-50);
   socket.emit("messages:history", recentMessages);
 
   // User joins
@@ -324,7 +337,7 @@ io.on("connection", (socket) => {
       timestamp: new Date().toISOString()
     };
     
-    // Store message (keep last MAX_MESSAGES_STORED)
+    // Store message
     messages.push(messageObj);
     if (messages.length > MAX_MESSAGES_STORED) {
       messages = messages.slice(-MAX_MESSAGES_STORED);
@@ -421,5 +434,6 @@ server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`Visit http://localhost:${PORT} to test the chat`);
   console.log(`Admin panel: http://localhost:${PORT}/admin.html`);
-  console.log(`Admin key: admin123`);
+  console.log(`Admin password: ${ADMIN_CONFIG.password}`);
+  console.log(`⚠️  For production, change the admin password in index.js or use environment variables`);
 });
