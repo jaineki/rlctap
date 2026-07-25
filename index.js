@@ -27,11 +27,9 @@ const MAX_MESSAGE_LENGTH = 500;
 const MAX_USERNAME_LENGTH = 30;
 const MAX_MESSAGES_STORED = 1000;
 
-// Admin configuration - Store password securely
-// In production, use environment variables: process.env.ADMIN_PASSWORD
+// Admin configuration
 const ADMIN_CONFIG = {
-  password: "selovasx2024", // Change this to your desired password
-  // For production, use: password: process.env.ADMIN_PASSWORD || "admin123"
+  password: process.env.ADMIN_PASSWORD || "admin123"
 };
 
 // Helper functions
@@ -49,7 +47,6 @@ const broadcastUsers = () => {
 
 // Admin authentication middleware
 const authenticateAdmin = (req, res, next) => {
-  // Check for admin password in headers or query params
   const providedPassword = req.headers['x-admin-password'] || req.query.adminPassword;
   
   if (!providedPassword) {
@@ -67,6 +64,46 @@ const authenticateAdmin = (req, res, next) => {
       message: "Invalid admin password"
     });
   }
+};
+
+// User authentication middleware for deleting their own messages
+const authenticateUser = (req, res, next) => {
+  const userId = req.headers['x-user-id'];
+  const messageId = req.params.id;
+  
+  if (!userId) {
+    return res.status(401).json({
+      success: false,
+      message: "User ID required"
+    });
+  }
+  
+  // Find the message
+  const message = messages.find(m => m.id === messageId);
+  if (!message) {
+    return res.status(404).json({
+      success: false,
+      message: "Message not found"
+    });
+  }
+  
+  // Check if the user owns this message
+  if (message.userId !== userId) {
+    return res.status(403).json({
+      success: false,
+      message: "You can only delete your own messages"
+    });
+  }
+  
+  // Check if user is still in the users map (still connected)
+  if (!users.has(userId)) {
+    return res.status(401).json({
+      success: false,
+      message: "User not found or disconnected"
+    });
+  }
+  
+  next();
 };
 
 // REST API Endpoints
@@ -137,10 +174,11 @@ app.get("/api/messages/:id", (req, res) => {
   });
 });
 
-// Admin protected routes
-// Delete a specific message (Admin only)
-app.delete("/api/messages/:id", authenticateAdmin, (req, res) => {
+// Delete a message - Users can delete their own messages
+app.delete("/api/messages/:id", authenticateUser, (req, res) => {
   const messageId = req.params.id;
+  const userId = req.headers['x-user-id'];
+  
   const messageIndex = messages.findIndex(m => m.id === messageId);
   
   if (messageIndex === -1) {
@@ -156,7 +194,9 @@ app.delete("/api/messages/:id", authenticateAdmin, (req, res) => {
   // Notify all clients about message deletion
   io.emit("message:deleted", {
     messageId: messageId,
-    deletedBy: "admin"
+    userId: userId,
+    deletedBy: "user",
+    timestamp: new Date().toISOString()
   });
   
   res.json({
@@ -166,12 +206,12 @@ app.delete("/api/messages/:id", authenticateAdmin, (req, res) => {
   });
 });
 
+// Admin protected routes
 // Delete all messages (Admin only)
-app.delete("/api/messages", authenticateAdmin, (req, res) => {
+app.delete("/api/messages/all", authenticateAdmin, (req, res) => {
   const deletedCount = messages.length;
   messages = [];
   
-  // Notify all clients that all messages were deleted
   io.emit("messages:cleared", {
     deletedCount,
     clearedBy: "admin",
@@ -193,7 +233,6 @@ app.delete("/api/messages/user/:userId", authenticateAdmin, (req, res) => {
   
   messages = messages.filter(m => m.userId !== userId);
   
-  // Notify all clients about bulk deletion
   io.emit("messages:cleared", {
     deletedCount,
     userId,
@@ -225,7 +264,6 @@ app.delete("/api/messages/old/:hours", authenticateAdmin, (req, res) => {
   
   messages = messages.filter(m => new Date(m.timestamp) >= cutoffTime);
   
-  // Notify all clients
   io.emit("messages:cleared", {
     deletedCount,
     olderThanHours: hours,
@@ -253,7 +291,6 @@ io.on("connection", (socket) => {
   socket.on("user:join", (data) => {
     const { username } = data;
     
-    // Validate username
     if (!username || username.trim().length === 0) {
       socket.emit("error", { message: "Username is required" });
       return;
@@ -261,7 +298,6 @@ io.on("connection", (socket) => {
     
     const trimmedUsername = username.trim().slice(0, MAX_USERNAME_LENGTH);
     
-    // Check if username already exists
     const existingUser = Array.from(users.values()).find(
       user => user.username.toLowerCase() === trimmedUsername.toLowerCase()
     );
@@ -273,7 +309,6 @@ io.on("connection", (socket) => {
     
     const userId = uuidv4();
     
-    // Store user
     users.set(userId, {
       userId,
       socketId: socket.id,
@@ -281,27 +316,22 @@ io.on("connection", (socket) => {
       joinedAt: new Date().toISOString()
     });
     
-    // Join a room for this user
     socket.join(`user:${userId}`);
     
-    // Send current user info
     socket.emit("user:joined", {
       userId,
       username: trimmedUsername,
       joinedAt: new Date().toISOString()
     });
     
-    // Send online users to the new user
     socket.emit("users:update", getOnlineUsers());
     
-    // Broadcast to others that a user joined
     socket.broadcast.emit("user:join", {
       userId,
       username: trimmedUsername,
       joinedAt: new Date().toISOString()
     });
     
-    // Update all users
     broadcastUsers();
     
     console.log(`User ${trimmedUsername} (${userId}) joined`);
@@ -311,7 +341,6 @@ io.on("connection", (socket) => {
   socket.on("message:send", (data) => {
     const { message } = data;
     
-    // Find user by socket ID
     const user = Array.from(users.values()).find(
       u => u.socketId === socket.id
     );
@@ -321,7 +350,6 @@ io.on("connection", (socket) => {
       return;
     }
     
-    // Validate message
     if (!message || message.trim().length === 0) {
       socket.emit("error", { message: "Message cannot be empty" });
       return;
@@ -337,13 +365,11 @@ io.on("connection", (socket) => {
       timestamp: new Date().toISOString()
     };
     
-    // Store message
     messages.push(messageObj);
     if (messages.length > MAX_MESSAGES_STORED) {
       messages = messages.slice(-MAX_MESSAGES_STORED);
     }
     
-    // Broadcast to all connected clients
     io.emit("message:new", messageObj);
     
     console.log(`Message from ${user.username}: ${trimmedMessage}`);
@@ -382,7 +408,6 @@ io.on("connection", (socket) => {
     
     let disconnectedUser = null;
     
-    // Find and remove user
     for (const [userId, user] of users.entries()) {
       if (user.socketId === socket.id) {
         disconnectedUser = user;
@@ -392,21 +417,18 @@ io.on("connection", (socket) => {
     }
     
     if (disconnectedUser) {
-      // Broadcast to others that user left
       io.emit("user:leave", {
         userId: disconnectedUser.userId,
         username: disconnectedUser.username,
         leftAt: new Date().toISOString()
       });
       
-      // Update all users
       broadcastUsers();
       
       console.log(`User ${disconnectedUser.username} (${disconnectedUser.userId}) disconnected`);
     }
   });
 
-  // Error handling
   socket.on("error", (error) => {
     console.error(`Socket error for ${socket.id}:`, error);
   });
@@ -435,5 +457,4 @@ server.listen(PORT, () => {
   console.log(`Visit http://localhost:${PORT} to test the chat`);
   console.log(`Admin panel: http://localhost:${PORT}/admin.html`);
   console.log(`Admin password: ${ADMIN_CONFIG.password}`);
-  console.log(`⚠️  For production, change the admin password in index.js or use environment variables`);
 });
