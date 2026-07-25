@@ -351,10 +351,10 @@
 <body>
     <div id="loginContainer" class="login-container">
         <h2>🔐 Admin Login</h2>
-        <p>Enter the admin key to access the dashboard</p>
-        <input type="password" id="adminKeyInput" placeholder="Enter admin key..." autofocus>
+        <p>Enter the admin password to access the dashboard</p>
+        <input type="password" id="adminPasswordInput" placeholder="Enter admin password..." autofocus>
         <button onclick="login()">Login</button>
-        <div id="loginError" style="color: #ef4444; margin-top: 12px; text-align: center; display: none;">Invalid admin key</div>
+        <div id="loginError" style="color: #ef4444; margin-top: 12px; text-align: center; display: none;">Invalid password</div>
     </div>
 
     <div id="adminDashboard" class="admin-container hidden">
@@ -417,33 +417,69 @@
     </div>
 
     <script>
-        const ADMIN_KEY = 'admin123';
-        let isAuthenticated = false;
+        // Admin password is stored on the server
+        // The client sends the password with each request
+        let adminPassword = '';
 
         function login() {
-            const keyInput = document.getElementById('adminKeyInput');
+            const passwordInput = document.getElementById('adminPasswordInput');
             const errorDiv = document.getElementById('loginError');
             
-            if (keyInput.value === ADMIN_KEY) {
-                isAuthenticated = true;
-                document.getElementById('loginContainer').style.display = 'none';
-                document.getElementById('adminDashboard').classList.remove('hidden');
-                errorDiv.style.display = 'none';
-                loadStats();
-                loadMessages();
-                startAutoRefresh();
-            } else {
+            adminPassword = passwordInput.value;
+            
+            if (!adminPassword) {
+                errorDiv.textContent = 'Please enter the admin password';
                 errorDiv.style.display = 'block';
-                keyInput.value = '';
-                keyInput.focus();
+                return;
+            }
+            
+            // Test the password by trying to load stats
+            testPassword(adminPassword);
+        }
+
+        async function testPassword(password) {
+            try {
+                const response = await fetch('/api/messages?limit=1', {
+                    headers: {
+                        'X-Admin-Password': password
+                    }
+                });
+                
+                if (response.status === 401 || response.status === 403) {
+                    const errorDiv = document.getElementById('loginError');
+                    errorDiv.textContent = 'Invalid admin password';
+                    errorDiv.style.display = 'block';
+                    document.getElementById('adminPasswordInput').value = '';
+                    document.getElementById('adminPasswordInput').focus();
+                    return;
+                }
+                
+                if (response.ok) {
+                    // Password is correct
+                    document.getElementById('loginContainer').style.display = 'none';
+                    document.getElementById('adminDashboard').classList.remove('hidden');
+                    document.getElementById('loginError').style.display = 'none';
+                    loadStats();
+                    loadMessages();
+                    startAutoRefresh();
+                } else {
+                    const errorDiv = document.getElementById('loginError');
+                    errorDiv.textContent = 'Authentication failed';
+                    errorDiv.style.display = 'block';
+                }
+            } catch (error) {
+                console.error('Login error:', error);
+                const errorDiv = document.getElementById('loginError');
+                errorDiv.textContent = 'Connection error. Please try again.';
+                errorDiv.style.display = 'block';
             }
         }
 
         function logout() {
-            isAuthenticated = false;
+            adminPassword = '';
             document.getElementById('loginContainer').style.display = 'block';
             document.getElementById('adminDashboard').classList.add('hidden');
-            document.getElementById('adminKeyInput').value = '';
+            document.getElementById('adminPasswordInput').value = '';
             document.getElementById('loginError').style.display = 'none';
             stopAutoRefresh();
         }
@@ -466,7 +502,7 @@
                 const options = {
                     method,
                     headers: {
-                        'X-Admin-Key': ADMIN_KEY
+                        'X-Admin-Password': adminPassword
                     }
                 };
                 
@@ -476,6 +512,14 @@
                 }
                 
                 const response = await fetch(url, options);
+                
+                // Check if authentication failed
+                if (response.status === 401 || response.status === 403) {
+                    showAlert('Session expired. Please login again.', 'danger');
+                    logout();
+                    return null;
+                }
+                
                 const data = await response.json();
                 return data;
             } catch (error) {
@@ -633,7 +677,7 @@
         }
 
         // Enter key for login
-        document.getElementById('adminKeyInput').addEventListener('keydown', (e) => {
+        document.getElementById('adminPasswordInput').addEventListener('keydown', (e) => {
             if (e.key === 'Enter') {
                 login();
             }
@@ -647,10 +691,7 @@
         });
 
         // Initial focus
-        document.getElementById('adminKeyInput').focus();
-
-        // Check if already authenticated (for demo purposes)
-        // In production, this would use a session or token
+        document.getElementById('adminPasswordInput').focus();
     </script>
 </body>
-              </html>
+</html>
