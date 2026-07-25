@@ -43,6 +43,7 @@
             align-items: center;
             border-bottom: 1px solid rgba(255, 255, 255, 0.1);
             flex-shrink: 0;
+            z-index: 5;
         }
 
         .chat-header h1 {
@@ -82,6 +83,7 @@
             display: flex;
             flex: 1;
             overflow: hidden;
+            min-height: 0;
         }
 
         .users-sidebar {
@@ -99,6 +101,11 @@
             text-transform: uppercase;
             letter-spacing: 0.5px;
             margin-bottom: 12px;
+            position: sticky;
+            top: 0;
+            background: #f8f9fa;
+            padding: 8px 0;
+            z-index: 1;
         }
 
         .user-item {
@@ -148,13 +155,25 @@
             flex-direction: column;
             background: #ffffff;
             min-width: 0;
+            min-height: 0;
+        }
+
+        .chat-messages-wrapper {
+            flex: 1;
+            overflow: hidden;
+            position: relative;
+            background: #fafafa;
         }
 
         .chat-messages {
-            flex: 1;
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
             padding: 20px;
             overflow-y: auto;
-            background: #fafafa;
+            overflow-x: hidden;
         }
 
         .message {
@@ -180,6 +199,7 @@
             padding: 4px 16px;
             border-radius: 12px;
             text-align: center;
+            max-width: 100%;
         }
 
         .message .message-header {
@@ -210,15 +230,14 @@
             display: inline-block;
         }
 
+        .message.own {
+            align-items: flex-end;
+        }
+
         .message.own .message-content {
             background: #667eea;
             color: white;
             border-color: #667eea;
-            align-self: flex-end;
-        }
-
-        .message.own {
-            align-items: flex-end;
         }
 
         .message.deleted {
@@ -240,6 +259,8 @@
             display: flex;
             align-items: center;
             flex-shrink: 0;
+            background: white;
+            border-top: 1px solid #f3f4f6;
         }
 
         .typing-indicator span {
@@ -293,10 +314,16 @@
             outline: none;
             transition: border-color 0.2s;
             font-family: inherit;
+            min-height: 44px;
         }
 
         .chat-input-area input[type="text"]:focus {
             border-color: #667eea;
+        }
+
+        .chat-input-area input[type="text"]:disabled {
+            background: #f3f4f6;
+            cursor: not-allowed;
         }
 
         .chat-input-area button {
@@ -310,6 +337,7 @@
             cursor: pointer;
             transition: transform 0.1s, box-shadow 0.2s;
             white-space: nowrap;
+            min-height: 44px;
         }
 
         .chat-input-area button:hover:not(:disabled) {
@@ -434,6 +462,32 @@
             color: #ef4444;
         }
 
+        .scroll-to-bottom {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+            transition: transform 0.2s;
+            z-index: 5;
+        }
+
+        .scroll-to-bottom:hover {
+            transform: scale(1.1);
+        }
+
+        .scroll-to-bottom.show {
+            display: flex;
+        }
+
         @media (max-width: 768px) {
             .chat-body {
                 flex-direction: column;
@@ -501,11 +555,13 @@
             <!-- Chat Main Area -->
             <div class="chat-main">
                 <!-- Messages -->
-                <div class="chat-messages" id="messageContainer">
-                    <div style="text-align: center; color: #9ca3af; padding: 40px 0;">
-                        <p>Welcome to the chat!</p>
-                        <p style="font-size: 13px;">Enter a username to start chatting</p>
+                <div class="chat-messages-wrapper">
+                    <div class="chat-messages" id="messageContainer">
+                        <div class="message system">
+                            <div class="message-content">Welcome to the chat! Enter a username to start chatting</div>
+                        </div>
                     </div>
+                    <button class="scroll-to-bottom" id="scrollToBottom" title="Scroll to bottom">↓</button>
                 </div>
 
                 <!-- Typing Indicator -->
@@ -565,11 +621,36 @@
         const statusText = document.getElementById('statusText');
         const userCount = document.getElementById('userCount');
         const loginError = document.getElementById('loginError');
+        const scrollToBottomBtn = document.getElementById('scrollToBottom');
 
         let currentUser = null;
         let typingTimeout = null;
         let isTyping = false;
         let isConnected = false;
+        let isAtBottom = true;
+
+        // Scroll management
+        function isScrollAtBottom() {
+            const threshold = 100;
+            return messageContainer.scrollHeight - messageContainer.scrollTop - messageContainer.clientHeight < threshold;
+        }
+
+        function scrollToBottom() {
+            messageContainer.scrollTop = messageContainer.scrollHeight;
+        }
+
+        function updateScrollButton() {
+            if (isScrollAtBottom()) {
+                scrollToBottomBtn.classList.remove('show');
+                isAtBottom = true;
+            } else {
+                scrollToBottomBtn.classList.add('show');
+                isAtBottom = false;
+            }
+        }
+
+        messageContainer.addEventListener('scroll', updateScrollButton);
+        scrollToBottomBtn.addEventListener('click', scrollToBottom);
 
         // Socket event listeners
         socket.on('connect', () => {
@@ -577,7 +658,6 @@
             updateConnectionStatus(true);
             console.log('Connected to server');
             
-            // If we have a current user but got disconnected, rejoin
             if (currentUser) {
                 socket.emit('user:join', { username: currentUser.username });
             }
@@ -587,7 +667,7 @@
             isConnected = false;
             updateConnectionStatus(false);
             if (currentUser) {
-                showSystemMessage('Disconnected from server. Reconnecting...');
+                addSystemMessage('Disconnected from server. Reconnecting...');
             }
         });
 
@@ -612,14 +692,17 @@
 
         socket.on('messages:history', (historyMessages) => {
             // Clear welcome message
-            const welcomeMsg = messageContainer.querySelector('div[style*="text-align: center"]');
+            const welcomeMsg = messageContainer.querySelector('.message.system');
             if (welcomeMsg) {
                 welcomeMsg.remove();
             }
             
             historyMessages.forEach(message => {
-                displayMessage(message, false);
+                addMessage(message, false);
             });
+            
+            // Scroll to bottom after loading history
+            setTimeout(scrollToBottom, 100);
         });
 
         socket.on('user:joined', (data) => {
@@ -628,15 +711,15 @@
             messageInput.disabled = false;
             sendButton.disabled = false;
             messageInput.focus();
-            showSystemMessage(`Welcome, ${data.username}!`);
+            addSystemMessage(`Welcome, ${data.username}!`);
         });
 
         socket.on('user:join', (data) => {
-            showSystemMessage(`${data.username} joined the chat`);
+            addSystemMessage(`${data.username} joined the chat`);
         });
 
         socket.on('user:leave', (data) => {
-            showSystemMessage(`${data.username} left the chat`);
+            addSystemMessage(`${data.username} left the chat`);
         });
 
         socket.on('users:update', (users) => {
@@ -645,12 +728,11 @@
         });
 
         socket.on('message:new', (message) => {
-            displayMessage(message, true);
+            addMessage(message, true);
         });
 
         socket.on('message:deleted', (data) => {
-            // Find and mark message as deleted
-            const messageElements = messageContainer.querySelectorAll('.message');
+            const messageElements = messageContainer.querySelectorAll('.message:not(.system)');
             messageElements.forEach(element => {
                 const messageId = element.dataset.messageId;
                 if (messageId === data.messageId) {
@@ -664,9 +746,10 @@
         });
 
         socket.on('messages:cleared', (data) => {
-            // Clear all messages
-            messageContainer.innerHTML = '';
-            showSystemMessage(`All messages cleared by admin (${data.deletedCount} messages deleted)`);
+            // Remove all non-system messages
+            const messages = messageContainer.querySelectorAll('.message:not(.system)');
+            messages.forEach(msg => msg.remove());
+            addSystemMessage(`All messages cleared by admin (${data.deletedCount} messages deleted)`);
         });
 
         socket.on('typing:start', (data) => {
@@ -714,13 +797,7 @@
             `).join('');
         }
 
-        function displayMessage(message, animate = true) {
-            // Remove welcome message
-            const welcomeMsg = messageContainer.querySelector('div[style*="text-align: center"]');
-            if (welcomeMsg) {
-                welcomeMsg.remove();
-            }
-
+        function addMessage(message, animate = true) {
             const isOwn = message.userId === currentUser?.userId;
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${isOwn ? 'own' : ''}`;
@@ -749,17 +826,24 @@
             `;
 
             messageContainer.appendChild(messageDiv);
-            messageContainer.scrollTop = messageContainer.scrollHeight;
+            
+            // Auto scroll if at bottom
+            if (isAtBottom || isScrollAtBottom()) {
+                setTimeout(scrollToBottom, 50);
+            }
         }
 
-        function showSystemMessage(text) {
+        function addSystemMessage(text) {
             const messageDiv = document.createElement('div');
             messageDiv.className = 'message system';
             messageDiv.innerHTML = `
                 <div class="message-content">${escapeHtml(text)}</div>
             `;
             messageContainer.appendChild(messageDiv);
-            messageContainer.scrollTop = messageContainer.scrollHeight;
+            
+            if (isAtBottom || isScrollAtBottom()) {
+                setTimeout(scrollToBottom, 50);
+            }
         }
 
         function showTypingIndicator(text) {
@@ -793,13 +877,13 @@
             return div.innerHTML;
         }
 
-        // Delete message function (for own messages)
+        // Delete message function
         window.deleteMessage = function(messageId) {
             if (confirm('Delete this message?')) {
                 fetch(`/api/messages/${messageId}`, {
                     method: 'DELETE',
                     headers: {
-                        'X-Admin-Key': 'admin123' // This would normally be stored securely
+                        'X-Admin-Key': 'admin123'
                     }
                 })
                 .then(response => response.json())
@@ -833,7 +917,6 @@
             joinButton.disabled = true;
             socket.emit('user:join', { username });
             
-            // Re-enable after a moment if there's an error
             setTimeout(() => {
                 joinButton.disabled = false;
             }, 2000);
@@ -841,13 +924,15 @@
 
         function handleSend() {
             const message = messageInput.value.trim();
-            if (!message) return;
+            if (!message) {
+                messageInput.focus();
+                return;
+            }
 
             socket.emit('message:send', { message });
             messageInput.value = '';
             messageInput.focus();
             
-            // Stop typing indicator
             if (isTyping) {
                 socket.emit('typing:stop');
                 isTyping = false;
@@ -893,6 +978,9 @@
 
         // Focus username input on load
         usernameInput.focus();
+        
+        // Initial scroll
+        setTimeout(scrollToBottom, 100);
     </script>
 </body>
 </html>
