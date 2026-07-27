@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Messenger Chat</title>
     <style>
-        /*open source code pamore*/
         * {
             margin: 0;
             padding: 0;
@@ -35,7 +34,6 @@
             position: relative;
         }
 
-        /* Header - Messenger Style */
         .chat-header {
             background: #ffffff;
             padding: 16px 24px;
@@ -119,7 +117,6 @@
             font-weight: 500;
         }
 
-        /* Chat Body */
         .chat-body {
             display: flex;
             flex: 1;
@@ -127,7 +124,6 @@
             background: #f0f2f5;
         }
 
-        /* Users Sidebar - Messenger Style */
         .users-sidebar {
             width: 280px;
             background: #ffffff;
@@ -210,6 +206,10 @@
             background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
         }
 
+        .user-avatar.ai-avatar {
+            background: linear-gradient(135deg, #9333ea 0%, #6d28d9 100%);
+        }
+
         .user-info {
             flex: 1;
             min-width: 0;
@@ -244,7 +244,10 @@
             color: #31a24c;
         }
 
-        /* Chat Main Area - Messenger Style */
+        .user-status.ai-status {
+            color: #9333ea;
+        }
+
         .chat-main {
             flex: 1;
             display: flex;
@@ -253,7 +256,6 @@
             min-width: 0;
         }
 
-        /* Messages Container */
         .chat-messages-wrapper {
             flex: 1;
             overflow: hidden;
@@ -275,7 +277,6 @@
             gap: 2px;
         }
 
-        /* Message Styles - Messenger Style */
         .message {
             display: flex;
             flex-direction: column;
@@ -309,6 +310,12 @@
             align-self: center;
             max-width: 90%;
             margin: 8px 0;
+        }
+
+        .message.ai-message .message-bubble {
+            background: linear-gradient(135deg, #9333ea 0%, #6d28d9 100%);
+            color: white;
+            border-bottom-left-radius: 4px;
         }
 
         .message-bubble {
@@ -360,6 +367,10 @@
             color: rgba(255, 255, 255, 0.8);
         }
 
+        .message.ai-message .message-header .username {
+            color: #9333ea !important;
+        }
+
         .message .timestamp {
             font-size: 11px;
             color: #8a8d91;
@@ -409,7 +420,6 @@
             color: #65676b !important;
         }
 
-        /* Typing Indicator */
         .typing-indicator {
             padding: 8px 24px;
             font-size: 14px;
@@ -448,7 +458,6 @@
             30% { transform: translateY(-6px); opacity: 1; }
         }
 
-        /* Input Area - Messenger Style */
         .chat-input-area {
             padding: 12px 20px;
             background: #ffffff;
@@ -526,7 +535,6 @@
             fill: currentColor;
         }
 
-        /* Scroll to Bottom Button */
         .scroll-to-bottom {
             position: absolute;
             bottom: 20px;
@@ -556,7 +564,6 @@
             display: flex;
         }
 
-        /* Login Overlay - Messenger Style */
         .login-overlay {
             position: absolute;
             top: 0;
@@ -665,7 +672,27 @@
             display: block;
         }
 
-        /* Scrollbar Styling - Messenger Style */
+        .ai-command-hint {
+            font-size: 12px;
+            color: #8a8d91;
+            padding: 4px 16px 8px 16px;
+            background: #f0f2f5;
+            border-top: 1px solid #e4e6eb;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-shrink: 0;
+        }
+
+        .ai-command-hint .ai-badge {
+            background: linear-gradient(135deg, #9333ea 0%, #6d28d9 100%);
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
         .chat-messages::-webkit-scrollbar,
         .users-list::-webkit-scrollbar {
             width: 6px;
@@ -687,7 +714,6 @@
             background: #b0b3b8;
         }
 
-        /* Responsive */
         @media (max-width: 768px) {
             .chat-body {
                 flex-direction: column;
@@ -756,7 +782,6 @@
 </head>
 <body>
     <div class="chat-container">
-        <!-- Chat Header - Messenger Style -->
         <div class="chat-header">
             <div class="chat-header-left">
                 <div class="chat-icon">💬</div>
@@ -771,9 +796,7 @@
             </div>
         </div>
 
-        <!-- Chat Body -->
         <div class="chat-body">
-            <!-- Users Sidebar -->
             <div class="users-sidebar">
                 <div class="users-sidebar-header">
                     <h3>
@@ -788,9 +811,7 @@
                 </div>
             </div>
 
-            <!-- Chat Main Area -->
             <div class="chat-main">
-                <!-- Messages -->
                 <div class="chat-messages-wrapper">
                     <div class="chat-messages" id="messageContainer">
                         <div class="message system">
@@ -800,10 +821,13 @@
                     <button class="scroll-to-bottom" id="scrollToBottom" title="Scroll to bottom">↓</button>
                 </div>
 
-                <!-- Typing Indicator -->
                 <div class="typing-indicator" id="typingIndicator"></div>
 
-                <!-- Input Area - Messenger Style -->
+                <div class="ai-command-hint">
+                    <span class="ai-badge">AI</span>
+                    <span>Type <strong>/ai</strong> followed by your message to chat with the AI bot</span>
+                </div>
+
                 <div class="chat-input-area">
                     <div class="input-wrapper">
                         <input 
@@ -822,7 +846,6 @@
             </div>
         </div>
 
-        <!-- Login Overlay -->
         <div class="login-overlay" id="loginOverlay">
             <div class="login-box">
                 <div class="login-icon">💬</div>
@@ -843,7 +866,7 @@
         </div>
     </div>
 
-                <script src="/socket.io/socket.io.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
     <script>
         // DOM Elements
         const socket = io({
@@ -956,6 +979,19 @@
             sendButton.disabled = false;
             messageInput.focus();
             addSystemMessage(`👋 Welcome, ${data.username}!`);
+            
+            // Add AI help message after a short delay
+            setTimeout(() => {
+                const aiHelpMessage = {
+                    id: 'ai-help-' + Date.now(),
+                    userId: 'ai-bot',
+                    username: '🤖 AI Bot',
+                    message: '💡 Type "/ai <message>" to chat with me! Example: "/ai hello"',
+                    timestamp: new Date().toISOString(),
+                    isAI: true
+                };
+                addMessage(aiHelpMessage, true);
+            }, 1000);
         });
 
         socket.on('user:join', (data) => {
@@ -978,7 +1014,6 @@
         });
 
         socket.on('message:deleted', (data) => {
-            // Find and mark the deleted message
             const messageElements = messageContainer.querySelectorAll('.message:not(.system)');
             messageElements.forEach(element => {
                 const messageId = element.dataset.messageId;
@@ -987,7 +1022,6 @@
                     if (bubble) {
                         bubble.textContent = '🗑️ Message deleted';
                         element.classList.add('deleted');
-                        // Remove delete button if exists
                         const actions = element.querySelector('.message-actions');
                         if (actions) {
                             const deleteBtn = actions.querySelector('button');
@@ -1007,8 +1041,10 @@
         });
 
         socket.on('typing:start', (data) => {
-            if (data.userId !== currentUser?.userId) {
+            if (data.userId !== currentUser?.userId && data.userId !== 'ai-bot') {
                 showTypingIndicator(`${data.username} is typing`);
+            } else if (data.userId === 'ai-bot') {
+                showTypingIndicator('🤖 AI Bot is thinking...');
             }
         });
 
@@ -1030,7 +1066,18 @@
         }
 
         function updateUserList(users) {
-            if (users.length === 0) {
+            // Add AI bot to the user list
+            const aiUser = {
+                userId: 'ai-bot',
+                username: '🤖 AI Bot',
+                isAI: true
+            };
+            
+            // Check if AI bot is already in the list
+            const hasAI = users.some(u => u.userId === 'ai-bot');
+            const allUsers = hasAI ? users : [...users, aiUser];
+            
+            if (allUsers.length === 0) {
                 userList.innerHTML = `
                     <div style="color: #65676b; font-size: 14px; text-align: center; padding: 30px 0;">
                         No one's online yet
@@ -1040,21 +1087,26 @@
             }
 
             const currentUserId = currentUser?.userId;
-            userList.innerHTML = users.map(user => {
+            userList.innerHTML = allUsers.map(user => {
                 const isCurrent = user.userId === currentUserId;
-                const avatarColor = isCurrent ? 'current-user-avatar' : '';
+                const isAI = user.userId === 'ai-bot';
+                const avatarClass = isAI ? 'ai-avatar' : (isCurrent ? 'current-user-avatar' : '');
+                const statusClass = isAI ? 'ai-status' : 'online';
+                const statusText = isAI ? '● Online' : '● Online';
+                
                 return `
                     <div class="user-item">
-                        <div class="user-avatar ${avatarColor}">
-                            ${user.username.charAt(0).toUpperCase()}
+                        <div class="user-avatar ${avatarClass}">
+                            ${isAI ? '🤖' : user.username.charAt(0).toUpperCase()}
                             <span class="online-indicator"></span>
                         </div>
                         <div class="user-info">
                             <div class="user-name ${isCurrent ? 'current-user' : ''}">
                                 ${user.username}
                                 ${isCurrent ? '<span class="you-badge">(You)</span>' : ''}
+                                ${isAI ? '<span class="you-badge">AI</span>' : ''}
                             </div>
-                            <div class="user-status online">● Online</div>
+                            <div class="user-status ${statusClass}">${statusText}</div>
                         </div>
                     </div>
                 `;
@@ -1063,8 +1115,14 @@
 
         function addMessage(message, animate = true) {
             const isOwn = message.userId === currentUser?.userId;
+            const isAI = message.isAI || message.userId === 'ai-bot';
+            
             const messageDiv = document.createElement('div');
-            messageDiv.className = `message ${isOwn ? 'own' : 'other'}`;
+            let className = `message ${isOwn ? 'own' : 'other'}`;
+            if (isAI) {
+                className += ' ai-message';
+            }
+            messageDiv.className = className;
             messageDiv.dataset.messageId = message.id;
             
             if (!animate) {
@@ -1076,11 +1134,17 @@
                 minute: '2-digit'
             });
 
-            const header = isOwn ? '' : `<div class="message-header"><span class="username">${escapeHtml(message.username)}</span></div>`;
+            let header = '';
+            if (!isOwn) {
+                const usernameDisplay = isAI ? '🤖 AI Bot' : escapeHtml(message.username);
+                header = `<div class="message-header"><span class="username">${usernameDisplay}</span></div>`;
+            }
+
+            const messageContent = isAI ? `💡 ${escapeHtml(message.message)}` : escapeHtml(message.message);
             
             messageDiv.innerHTML = `
                 ${header}
-                <div class="message-bubble">${escapeHtml(message.message)}</div>
+                <div class="message-bubble">${messageContent}</div>
                 <div class="message-actions">
                     <span class="timestamp">${time}</span>
                     ${isOwn ? `<button onclick="deleteOwnMessage('${message.id}')">Delete</button>` : ''}
@@ -1138,7 +1202,7 @@
             return div.innerHTML;
         }
 
-        // Delete own message function - No admin password required
+        // Delete own message function
         window.deleteOwnMessage = function(messageId) {
             if (!currentUser) {
                 alert('You must be logged in to delete messages');
@@ -1166,7 +1230,6 @@
             .then(data => {
                 if (data.success) {
                     console.log('Message deleted');
-                    // The message will be updated via socket event
                 } else {
                     alert('Failed to delete message: ' + data.message);
                 }
@@ -1256,6 +1319,6 @@
 
         setTimeout(() => usernameInput.focus(), 500);
         setTimeout(scrollToBottom, 100);
-                </script>
+    </script>
 </body>
 </html>
