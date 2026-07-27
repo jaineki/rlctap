@@ -394,8 +394,27 @@ io.on("connection", (socket) => {
       const aiPrompt = trimmedMessage.slice(AI_CONFIG.commandPrefix.length + 1).trim();
       
       if (aiPrompt.length > 0) {
+        // Show the user's original message first
+        const userMessageObj = {
+          id: uuidv4(),
+          userId: user.userId,
+          username: user.username,
+          message: trimmedMessage,
+          timestamp: new Date().toISOString(),
+          isAI: false
+        };
+        
+        // Store user message
+        messages.push(userMessageObj);
+        if (messages.length > MAX_MESSAGES_STORED) {
+          messages = messages.slice(-MAX_MESSAGES_STORED);
+        }
+        
+        // Broadcast user's message to all clients
+        io.emit("message:new", userMessageObj);
+        
         // Show typing indicator for AI
-        socket.broadcast.emit("typing:start", {
+        io.emit("typing:start", {
           userId: "ai-bot",
           username: "AI Bot"
         });
@@ -404,7 +423,7 @@ io.on("connection", (socket) => {
         const aiResponse = await getAIResponse(aiPrompt);
         
         // Stop typing indicator
-        socket.broadcast.emit("typing:stop", {
+        io.emit("typing:stop", {
           userId: "ai-bot",
           username: "AI Bot"
         });
