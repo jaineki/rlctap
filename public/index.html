@@ -579,6 +579,10 @@
             z-index: 10;
         }
 
+        .login-overlay.hidden {
+            display: none;
+        }
+
         .login-box {
             background: white;
             padding: 48px;
@@ -714,6 +718,22 @@
             background: #b0b3b8;
         }
 
+        .clear-storage-btn {
+            background: none;
+            border: none;
+            color: #65676b;
+            font-size: 12px;
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 4px;
+            transition: background 0.2s;
+        }
+
+        .clear-storage-btn:hover {
+            background: #e4e6eb;
+            color: #e41e3f;
+        }
+
         @media (max-width: 768px) {
             .chat-body {
                 flex-direction: column;
@@ -793,6 +813,7 @@
                     <span id="statusText">Connecting...</span>
                 </div>
                 <span class="user-count-badge" id="userCount">0 online</span>
+                <button class="clear-storage-btn" id="clearStorageBtn" title="Clear saved name">✕</button>
             </div>
         </div>
 
@@ -891,12 +912,56 @@
         const onlineCount = document.getElementById('onlineCount');
         const loginError = document.getElementById('loginError');
         const scrollToBottomBtn = document.getElementById('scrollToBottom');
+        const clearStorageBtn = document.getElementById('clearStorageBtn');
 
         let currentUser = null;
         let typingTimeout = null;
         let isTyping = false;
         let isConnected = false;
         let isAtBottom = true;
+        let isRejoining = false;
+
+        // Storage keys
+        const STORAGE_KEYS = {
+            username: 'chat_username',
+            userId: 'chat_user_id'
+        };
+
+        // Save user data to localStorage
+        function saveUserData(username, userId) {
+            try {
+                if (username) {
+                    localStorage.setItem(STORAGE_KEYS.username, username);
+                }
+                if (userId) {
+                    localStorage.setItem(STORAGE_KEYS.userId, userId);
+                }
+            } catch (error) {
+                console.error('Error saving user data:', error);
+            }
+        }
+
+        // Load user data from localStorage
+        function loadUserData() {
+            try {
+                const username = localStorage.getItem(STORAGE_KEYS.username);
+                const userId = localStorage.getItem(STORAGE_KEYS.userId);
+                return { username, userId };
+            } catch (error) {
+                console.error('Error loading user data:', error);
+                return { username: null, userId: null };
+            }
+        }
+
+        // Clear user data from localStorage
+        function clearUserData() {
+            try {
+                localStorage.removeItem(STORAGE_KEYS.username);
+                localStorage.removeItem(STORAGE_KEYS.userId);
+            } catch (error) {
+                console.error('Error clearing user data:', error);
+            }
+        }
 
         // Scroll management
         function isScrollAtBottom() {
@@ -927,8 +992,14 @@
             updateConnectionStatus(true);
             console.log('Connected to server');
             
-            if (currentUser) {
-                socket.emit('user:join', { username: currentUser.username });
+            // Check if we have saved user data and should rejoin
+            if (!isRejoining && currentUser) {
+                const savedData = loadUserData();
+                if (savedData.username) {
+                    console.log('Rejoining as:', savedData.username);
+                    isRejoining = true;
+                    socket.emit('user:join', { username: savedData.username });
+                }
             }
         });
 
@@ -943,7 +1014,10 @@
         socket.on('reconnect', () => {
             console.log('Reconnected');
             if (currentUser) {
-                socket.emit('user:join', { username: currentUser.username });
+                const savedData = loadUserData();
+                if (savedData.username) {
+                    socket.emit('user:join', { username: savedData.username });
+                }
             }
         });
 
@@ -956,7 +1030,14 @@
         });
 
         socket.on('error', (data) => {
-            showError(data.message);
+            // If username already taken on rejoin, clear saved data
+            if (data.message && data.message.includes('already taken')) {
+                clearUserData();
+                loginOverlay.classList.remove('hidden');
+                showError('Username already taken. Please choose a different name.');
+            } else {
+                showError(data.message);
+            }
         });
 
         socket.on('messages:history', (historyMessages) => {
@@ -974,24 +1055,37 @@
 
         socket.on('user:joined', (data) => {
             currentUser = data;
-            loginOverlay.style.display = 'none';
+            // Save user data to localStorage
+            saveUserData(data.username, data.userId);
+            
+            loginOverlay.classList.add('hidden');
             messageInput.disabled = false;
             sendButton.disabled = false;
             messageInput.focus();
-            addSystemMessage(`👋 Welcome, ${data.username}!`);
             
-            // Add AI help message after a short delay
-            setTimeout(() => {
-                const aiHelpMessage = {
-                    id: 'ai-help-' + Date.now(),
-                    userId: 'ai-bot',
-                    username: '🤖 AI Bot',
-                    message: '💡 Type "/ai <message>" to chat with me! Example: "/ai hello"',
-                    timestamp: new Date().toISOString(),
-                    isAI: true
-                };
-                addMessage(aiHelpMessage, true);
-            }, 1000);
+            if (!isRejoining) {
+                addSystemMessage(`👋 Welcome, ${data.username}!`);
+            } else {
+                addSystemMessage(`🔁 Welcome back, ${data.username}!`);
+                isRejoining = false;
+            }
+            
+            // Add AI help message after a short delay (only on first join)
+            if (!isRejoining) {
+                setTimeout(() => {
+                    const aiHelpMessage = {
+                        id: 'ai-help-' + Date.now(),
+                        userId: 'ai-bot',
+                        username: '🤖 AI Bot',
+                        message: '💡 Type "/ai <message>" to chat with me! Example: "/ai hello"',
+                        timestamp: new Date().toISOString(),
+                        isAI: true
+                    };
+                    addMessage(aiHelpMessage, true);
+                }, 1000);
+            }
+            
+            isRejoining = false;
         });
 
         socket.on('user:join', (data) => {
@@ -1066,14 +1160,12 @@
         }
 
         function updateUserList(users) {
-            // Add AI bot to the user list
             const aiUser = {
                 userId: 'ai-bot',
                 username: '🤖 AI Bot',
                 isAI: true
             };
             
-            // Check if AI bot is already in the list
             const hasAI = users.some(u => u.userId === 'ai-bot');
             const allUsers = hasAI ? users : [...users, aiUser];
             
@@ -1135,12 +1227,16 @@
             });
 
             let header = '';
-            if (!isOwn) {
-                const usernameDisplay = isAI ? '🤖 AI Bot' : escapeHtml(message.username);
-                header = `<div class="message-header"><span class="username">${usernameDisplay}</span></div>`;
+            if (!isOwn && !isAI) {
+                header = `<div class="message-header"><span class="username">${escapeHtml(message.username)}</span></div>`;
+            } else if (isAI) {
+                header = `<div class="message-header"><span class="username">🤖 AI Bot</span></div>`;
             }
 
-            const messageContent = isAI ? `💡 ${escapeHtml(message.message)}` : escapeHtml(message.message);
+            let messageContent = escapeHtml(message.message);
+            if (isAI) {
+                messageContent = `💡 ${messageContent}`;
+            }
             
             messageDiv.innerHTML = `
                 ${header}
@@ -1240,6 +1336,23 @@
             });
         };
 
+        // Clear saved data and logout
+        function handleClearStorage() {
+            if (confirm('Clear your saved name and logout?')) {
+                clearUserData();
+                currentUser = null;
+                loginOverlay.classList.remove('hidden');
+                messageInput.disabled = true;
+                sendButton.disabled = true;
+                usernameInput.value = '';
+                usernameInput.focus();
+                // Clear messages but keep system messages
+                const messages = messageContainer.querySelectorAll('.message:not(.system)');
+                messages.forEach(msg => msg.remove());
+                addSystemMessage('👋 You have been logged out');
+            }
+        }
+
         // Event handlers
         function handleJoin() {
             const username = usernameInput.value.trim();
@@ -1255,6 +1368,7 @@
 
             joinButton.disabled = true;
             joinButton.textContent = 'Joining...';
+            isRejoining = false;
             socket.emit('user:join', { username });
             
             setTimeout(() => {
@@ -1316,9 +1430,40 @@
         });
 
         messageInput.addEventListener('input', handleTyping);
+        clearStorageBtn.addEventListener('click', handleClearStorage);
 
-        setTimeout(() => usernameInput.focus(), 500);
+        // Check for saved user data on load
+        function checkSavedUser() {
+            const savedData = loadUserData();
+            if (savedData.username) {
+                // Auto-join with saved username
+                console.log('Auto-joining with saved username:', savedData.username);
+                usernameInput.value = savedData.username;
+                isRejoining = true;
+                // Wait for connection to be established
+                if (socket.connected) {
+                    socket.emit('user:join', { username: savedData.username });
+                }
+                // Show loading state
+                joinButton.textContent = 'Rejoining...';
+                joinButton.disabled = true;
+                setTimeout(() => {
+                    joinButton.textContent = 'Start Chatting';
+                    joinButton.disabled = false;
+                }, 3000);
+            } else {
+                // Show login overlay
+                loginOverlay.classList.remove('hidden');
+                usernameInput.focus();
+            }
+        }
+
+        // Initial setup
+        setTimeout(() => {
+            checkSavedUser();
+        }, 500);
+        
         setTimeout(scrollToBottom, 100);
     </script>
 </body>
-</html>
+    </html>
