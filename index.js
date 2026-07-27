@@ -32,6 +32,14 @@ const ADMIN_CONFIG = {
   password: process.env.ADMIN_PASSWORD || "admin123"
 };
 
+// AI Configuration
+const AI_CONFIG = {
+  apiUrl: "https://selovapi.onrender.com/api/jay",
+  defaultUid: "8",
+  commandPrefix: "/ai",
+  enabled: true
+};
+
 // Helper functions
 const getOnlineUsers = () => {
   return Array.from(users.values()).map(user => ({
@@ -44,6 +52,29 @@ const broadcastUsers = () => {
   const onlineUsers = getOnlineUsers();
   io.emit("users:update", onlineUsers);
 };
+
+// AI function to get response from API
+async function getAIResponse(prompt) {
+  try {
+    const url = `${AI_CONFIG.apiUrl}?prompt=${encodeURIComponent(prompt)}&uid=${AI_CONFIG.defaultUid}`;
+    const response = await fetch(url);
+    
+    if (!response.ok) {
+      throw new Error(`AI API error: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    
+    if (data && data.status === true && data.response) {
+      return data.response;
+    } else {
+      throw new Error("Invalid AI response format");
+    }
+  } catch (error) {
+    console.error("AI API Error:", error);
+    return "Sorry, I'm having trouble responding right now. Please try again later.";
+  }
+}
 
 // Admin authentication middleware
 const authenticateAdmin = (req, res, next) => {
@@ -78,7 +109,6 @@ const authenticateUser = (req, res, next) => {
     });
   }
   
-  // Find the message
   const message = messages.find(m => m.id === messageId);
   if (!message) {
     return res.status(404).json({
@@ -87,7 +117,6 @@ const authenticateUser = (req, res, next) => {
     });
   }
   
-  // Check if the user owns this message
   if (message.userId !== userId) {
     return res.status(403).json({
       success: false,
@@ -95,7 +124,6 @@ const authenticateUser = (req, res, next) => {
     });
   }
   
-  // Check if user is still in the users map (still connected)
   if (!users.has(userId)) {
     return res.status(401).json({
       success: false,
@@ -140,7 +168,12 @@ app.get("/api/info", (req, res) => {
     ],
     onlineUsers: users.size,
     totalMessages: messages.length,
-    maxMessagesStored: MAX_MESSAGES_STORED
+    maxMessagesStored: MAX_MESSAGES_STORED,
+    ai: {
+      enabled: AI_CONFIG.enabled,
+      commandPrefix: AI_CONFIG.commandPrefix,
+      apiUrl: AI_CONFIG.apiUrl
+    }
   });
 });
 
@@ -191,7 +224,6 @@ app.delete("/api/messages/:id", authenticateUser, (req, res) => {
   const deletedMessage = messages[messageIndex];
   messages.splice(messageIndex, 1);
   
-  // Notify all clients about message deletion
   io.emit("message:deleted", {
     messageId: messageId,
     userId: userId,
@@ -207,7 +239,6 @@ app.delete("/api/messages/:id", authenticateUser, (req, res) => {
 });
 
 // Admin protected routes
-// Delete all messages (Admin only)
 app.delete("/api/messages/all", authenticateAdmin, (req, res) => {
   const deletedCount = messages.length;
   messages = [];
@@ -225,7 +256,6 @@ app.delete("/api/messages/all", authenticateAdmin, (req, res) => {
   });
 });
 
-// Bulk delete messages by user (Admin only)
 app.delete("/api/messages/user/:userId", authenticateAdmin, (req, res) => {
   const userId = req.params.userId;
   const userMessages = messages.filter(m => m.userId === userId);
@@ -248,7 +278,6 @@ app.delete("/api/messages/user/:userId", authenticateAdmin, (req, res) => {
   });
 });
 
-// Delete messages older than specified time (Admin only)
 app.delete("/api/messages/old/:hours", authenticateAdmin, (req, res) => {
   const hours = parseInt(req.params.hours);
   if (isNaN(hours) || hours <= 0) {
@@ -337,8 +366,8 @@ io.on("connection", (socket) => {
     console.log(`User ${trimmedUsername} (${userId}) joined`);
   });
 
-  // Send message
-  socket.on("message:send", (data) => {
+  // Send message - Now with AI support
+  socket.on("message:send", async (data) => {
     const { message } = data;
     
     const user = Array.from(users.values()).find(
@@ -357,12 +386,61 @@ io.on("connection", (socket) => {
     
     const trimmedMessage = message.trim().slice(0, MAX_MESSAGE_LENGTH);
     
+    // Check if message starts with AI command prefix
+    const isAICommand = trimmedMessage.toLowerCase().startsWith(AI_CONFIG.commandPrefix + " ");
+    
+    if (isAICommand && AI_CONFIG.enabled) {
+      // Extract the AI prompt (remove the /ai prefix)
+      const aiPrompt = trimmedMessage.slice(AI_CONFIG.commandPrefix.length + 1).trim();
+      
+      if (aiPrompt.length > 0) {
+        // Show typing indicator for AI
+        socket.broadcast.emit("typing:start", {
+          userId: "ai-bot",
+          username: "AI Bot"
+        });
+        
+        // Get AI response
+        const aiResponse = await getAIResponse(aiPrompt);
+        
+        // Stop typing indicator
+        socket.broadcast.emit("typing:stop", {
+          userId: "ai-bot",
+          username: "AI Bot"
+        });
+        
+        // Create AI message object
+        const aiMessageObj = {
+          id: uuidv4(),
+          userId: "ai-bot",
+          username: "🤖 AI Bot",
+          message: aiResponse,
+          timestamp: new Date().toISOString(),
+          isAI: true
+        };
+        
+        // Store AI message
+        messages.push(aiMessageObj);
+        if (messages.length > MAX_MESSAGES_STORED) {
+          messages = messages.slice(-MAX_MESSAGES_STORED);
+        }
+        
+        // Broadcast AI response to all connected clients
+        io.emit("message:new", aiMessageObj);
+        
+        console.log(`AI response to ${user.username}: ${aiResponse.substring(0, 50)}...`);
+        return; // Don't process as regular message
+      }
+    }
+    
+    // Regular message (not AI)
     const messageObj = {
       id: uuidv4(),
       userId: user.userId,
       username: user.username,
       message: trimmedMessage,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      isAI: false
     };
     
     messages.push(messageObj);
@@ -457,4 +535,5 @@ server.listen(PORT, () => {
   console.log(`Visit http://localhost:${PORT} to test the chat`);
   console.log(`Admin panel: http://localhost:${PORT}/admin.html`);
   console.log(`Admin password: ${ADMIN_CONFIG.password}`);
+  console.log(`AI Bot: Type "/ai <message>" to chat with AI`);
 });
